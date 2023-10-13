@@ -3,6 +3,7 @@ import numpy as np
 
 from .SIIM import *
 from .CIFAR10Dataset import *
+from .COCO import get_coco_data, COCO_Dataset
 
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -19,7 +20,7 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
     logger = logging.getLogger()
     logger.info("Build CVAE dataset for {}".format(dataset_name))
     
-    assert dataset_name in ['cifar10', 'siim']
+    assert dataset_name in ['cifar10', 'siim', 'coco']
     
     if dataset_name == "cifar10":
       
@@ -36,7 +37,15 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
         train_set = SIIM_Dataset("./data/SIIM/train/", benign[0:int(0.8*(len( benign)))], [0]*len(benign[0:int(0.8*(len( benign)))]))
         validate_set = SIIM_Dataset("./data/SIIM/train/", benign[int(0.8*(len( benign)))+1:], [0]*len(benign[int(0.8*(len( benign)))+1:]))
         test_set = SIIM_Dataset("./data/SIIM/train/", benign[int(0.8*(len( benign)))+1:]+malignant, [0]*len(benign[int(0.8*(len( benign)))+1:])+[1]*len(malignant))
-        
+
+    elif dataset_name == 'coco':
+
+        normal_filenames, outlier_filenames = get_coco_data(normal_class)
+        train_set = COCO_Dataset("./Data/Atika/Model_Optimization/data/train2017/", normal_filenames[0:int(0.8*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.8*(len(normal_filenames)))]))
+        validate_set = COCO_Dataset("./Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:], [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:]))
+        test_set = COCO_Dataset("./Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames))
+
+
     cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = True, num_workers = 1),
                       'val': DataLoader(validate_set, batch_size = cvae_batch_size, num_workers = 1),
                       'test': DataLoader(test_set, batch_size = cvae_batch_size, num_workers = 1)}

@@ -46,6 +46,6 @@ def get_siim_data():
         
     malignants = []
     for i in range(0, len(malignant["image_name"])):
-        malignants.append(malignant["image_name"].iloc[i]+".jpg")    
+        malignants.append(malignant["image_name"].iloc[i]+".jpg")
     
     return benigns, malignants

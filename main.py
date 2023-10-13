@@ -23,7 +23,7 @@ from train import train_all, load_ckpt
 # Settings
 ################################################################################
 @click.command()
-@click.argument('dataset_name', type=click.Choice(['cifar10', 'siim']))
+@click.argument('dataset_name', type=click.Choice(['cifar10', 'siim', 'coco']))
 @click.argument('net_name', type=click.Choice(['CVAD']))
 @click.argument('data_path', type=click.Path(exists=True))
 @click.option('--capacity', type=int, default=16, help='Specify Convoluation layer channel unit')
@@ -118,8 +118,9 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     if dataset_name == "cifar10":
         imgSize = 32
         channel = 3
-
-
+    elif dataset_name == "coco":
+        imgSize = 256
+        channel = 3
 
     normal_class = re.findall(r'\d+', cfg.settings['normal_class'])
     normal_class = [int(x) for x in normal_class]
@@ -136,7 +137,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     
     if load_cvae_model: # load pretrained model
         logger.info("---------CVAE load trained model--------")
-        embnet = load_ckpt(cvae_model_path, embnet, cvae_optimizer)   
+        embnet = load_ckpt(cvae_model_path, embnet, cvae_optimizer)
          
     cls_loss = nn.BCELoss()
     amsgrad = False
