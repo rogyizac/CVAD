@@ -57,9 +57,9 @@ def cvad_evaluate(embnet, cls_model, recon_loss, cls_loss, test_dataloader, devi
                 outputs = cls_model(images[i].unsqueeze(0))
                 cvae_loss = recon_loss(recon_x, images[i].unsqueeze(0), mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
 
-                if not np.isnan(cvae_loss.item()+outputs.detach().cpu().numpy()[0][0]) and not np.isinf(cvae_loss.item()+outputs.detach().cpu().numpy()[0][0]):
+                if not np.isnan(cvae_loss.item()+outputs[1].detach().cpu().numpy()[0][0]) and not np.isinf(cvae_loss.item()+outputs[1].detach().cpu().numpy()[0][0]):
                     anomaly_score1.append([cvae_loss.item()])
-                    anomaly_score2.append([outputs.detach().cpu().numpy()[0][0]])
+                    anomaly_score2.append([outputs[1].detach().cpu().numpy()[0][0]])
                     Targets.append(targets[i].detach().cpu().numpy())
             
     Y_label = np.array(np.vstack(Targets).squeeze(1),dtype=int).tolist() 

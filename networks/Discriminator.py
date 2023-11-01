@@ -8,9 +8,10 @@ import torch
 from torch import nn
 
 imgSize = 256
+latent_dims = 512
 
 class Discriminator(nn.Module):
-    def __init__(self, channel=3, capacity = 16):
+    def __init__(self, capacity = 16, channel=3):
         super(Discriminator, self).__init__()
         self.c = capacity
         self.conv1 = nn.Sequential(

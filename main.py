@@ -17,7 +17,7 @@ from datasets.build_dataset import *
 from networks.build_net import *
 from train import train_all, load_ckpt
 
-
+torch.autograd.set_detect_anomaly(True)
 
 ################################################################################
 # Settings
@@ -63,7 +63,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     
     # Get configuration
     cfg = Config(locals().copy())
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                                                
     # Set up logging
     logging.basicConfig(level=logging.INFO)
@@ -82,8 +82,8 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     
-    cvae_model_path = cfg.settings['cvae_model_path']+dataset_name+"/netG_"+dataset_name+".pt.tar"
-    cls_model_path = cfg.settings['cls_model_path']+dataset_name+"/netD_"+dataset_name+".pt.tar"
+    cvae_model_path = cfg.settings['cvae_model_path']+dataset_name+"/netG_"+dataset_name+".pth.tar"
+    cls_model_path = cfg.settings['cls_model_path']+dataset_name+"/netD_"+dataset_name+".pth.tar"
     config_path = cfg.settings['config_path']+dataset_name+"/config_"+cfg.settings['net_name']+"_"+cfg.settings['normal_class']+".json"
     
     # Print arguments
@@ -110,7 +110,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     logger.info('CVAD weight_decay: %f' % cfg.settings['cls_weight_decay'])
     logger.info('CVAD load_model: %r' %  cfg.settings['load_cls_model'])
     logger.info('CVAD model_path: %s' % cls_model_path)
-    logger.info('Normal class:' + cfg.settings['normal_class'])    
+    logger.info('Normal class:' + cfg.settings['normal_class'])
     logger.info("CVAE ==> embnet")
     logger.info("CVAD ==> cls_model")
     
@@ -129,7 +129,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     embnet, cls_model = build_CVAD_net(cfg.settings['dataset_name'], cfg.settings['net_name'], cfg.settings['capacity'], cfg.settings['channel'])
     embnet = embnet.to(device)
     cls_model = cls_model.to(device)
-                                               
+    
     amsgrad = False
     if cfg.settings['cvae_optimizer_name'] == "amsgrad":
         amsgrad=True

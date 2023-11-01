@@ -11,27 +11,27 @@ latent_dims = 16
 
 class CVAE32(nn.Module):
     def __init__(self,  capacity=16, channel=3):
-        super(CVAE32, self).__init__()
+        super(CVAE32, self).__init__() # 3 x 32 x 32
         self.c = capacity
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels=channel, out_channels=self.c, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), # 16 x 16 x 16
         )
         self.conv2 = nn.Sequential(
             nn.Conv2d(in_channels=self.c, out_channels=self.c*2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c*2),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), # 32 x 8 x 8
         )
         self.conv3 = nn.Sequential(
             nn.Conv2d(in_channels=self.c*2, out_channels=self.c*4, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c*4),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), # 64 x 4 x 4
         )
         self.conv4 = nn.Sequential(
             nn.Conv2d(in_channels=self.c*4, out_channels=self.c*8, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c*8),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2, inplace=True), # 128 x 2 x 2
         )
         
         self.fc_mu = nn.Linear(in_features=self.c*8*(imgSize//16)*(imgSize//16), out_features=latent_dims)

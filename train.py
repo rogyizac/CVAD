@@ -9,6 +9,8 @@ from torch.autograd import Variable
 from torch.nn import functional as F
 import torchvision.utils as vutils
 from torchvision.utils import save_image
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
+
 
 from evaluate import *
 
@@ -31,7 +33,9 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
     best_loss = np.inf
     best_loss2 = np.inf
     
-    
+    schedulerG = ReduceLROnPlateau(optimizerG, mode='min', factor=0.1, patience=10, verbose=True)
+    schedulerD = ReduceLROnPlateau(optimizerD, mode='min', factor=0.1, patience=5, verbose=True)
+
     ################################################################################
     # train CVAE
     ################################################################################
@@ -63,7 +67,7 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
             L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
             loss.append(L_dec_vae.item())
             L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
-        
+        schedulerG.step(L_dec_vae.item())
         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss)))
         if np.mean(loss)<best_loss:
             best_loss = np.mean(loss)
@@ -82,7 +86,6 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
     logger.info("--------CLS--------")    
     cls_loss = torch.nn.BCELoss()    
     netG.eval() 
-
     for epoch in range(Depoch):
         loss = []
         netD.train()
@@ -95,8 +98,8 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
             preds2 = netD(recon_x)
         
             optimizerD.zero_grad()
-            L_dec_vae = cls_loss(torch.squeeze(preds, dim=1),targets.float())
-            L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)
+            L_dec_vae = cls_loss(torch.squeeze(preds[1], dim=1),targets.float())
+            L_dec_vae += cls_loss(torch.squeeze(preds2[1], dim=1),1.0-targets)
             L_dec_vae.backward()
             optimizerD.step()      
             loss.append(L_dec_vae.item())
@@ -112,10 +115,11 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
             preds = netD(images)
             preds2 = netD(recon_x)
 
-            L_dec_vae = cls_loss(torch.squeeze(preds, dim=1),targets.float())
-            L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)      
+            L_dec_vae = cls_loss(torch.squeeze(preds[1], dim=1),targets.float())
+            L_dec_vae += cls_loss(torch.squeeze(preds2[1], dim=1),1.0-targets)      
             loss.append(L_dec_vae.item())
-         
+
+        schedulerD.step(L_dec_vae.item())
         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss))) 
         if np.mean(loss)<best_loss2:
             best_loss2 = np.mean(loss)

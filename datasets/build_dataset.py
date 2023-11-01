@@ -8,6 +8,7 @@ from .COCO import get_coco_data, COCO_Dataset
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
+from torch import nn
 
 
 cifar10_tsfms = transforms.Compose([
@@ -41,14 +42,21 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
     elif dataset_name == 'coco':
 
         normal_filenames, outlier_filenames = get_coco_data(normal_class)
-        train_set = COCO_Dataset("./Data/Atika/Model_Optimization/data/train2017/", normal_filenames[0:int(0.8*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.8*(len(normal_filenames)))]))
-        validate_set = COCO_Dataset("./Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:], [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:]))
-        test_set = COCO_Dataset("./Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames))
+        print("Normal :",len(normal_filenames), " Outliers :", len(outlier_filenames))
+        train_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[0:int(0.8*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.8*(len(normal_filenames)))]))
+        validate_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:], [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:]))
+        test_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames))
+        
+        # train_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[0:int(0.1*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.1*(len(normal_filenames)))]))
+        # validate_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.9*(len( normal_filenames)))+1:], [0]*len(normal_filenames[int(0.9*(len( normal_filenames)))+1:]))
+        # test_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.9*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.9*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames))
+        
+        print("Train :", len(train_set), "Validate :", len(validate_set), "Test :", len(test_set))
 
 
-    cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = True, num_workers = 1),
-                      'val': DataLoader(validate_set, batch_size = cvae_batch_size, num_workers = 1),
-                      'test': DataLoader(test_set, batch_size = cvae_batch_size, num_workers = 1)}
+    cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = True, num_workers = 8),
+                      'val': DataLoader(validate_set, batch_size = cvae_batch_size, num_workers = 8),
+                      'test': DataLoader(test_set, batch_size = cvae_batch_size, num_workers = 8)}
     cvae_dataset_sizes = {'train': len(train_set), 'val': len(validate_set), 'test':len(test_set)}
         
     return cvae_dataloaders, cvae_dataset_sizes

@@ -1,8 +1,8 @@
-
-import numpy as np
-import json
 import os
+import json
 import torch
+import numpy as np
+from PIL import Image
 from torchvision import datasets
 from torchvision import transforms
 from torch.utils.data.dataset import Dataset
@@ -21,11 +21,12 @@ def get_category_id(annotations, category_name):
     return None
 
 
-def get_image_ids_with_category(annotations, category_id):
+def get_image_ids_with_category(annotations, category_ids):
     image_ids = set()
-    for anno in annotations['annotations']:
-        if anno['category_id'] == category_id:
-            image_ids.add(anno['image_id'])
+    for category_id in category_ids:
+        for anno in annotations['annotations']:
+            if anno['category_id'] == category_id:
+                image_ids.add(anno['image_id'])
     return image_ids
 
 
@@ -44,9 +45,9 @@ def get_filenames(image_ids, id_filename_mapping):
 
 
 def get_coco_data(normal_class_id):
-    root_dir = "./Data/Atika/Model_Optimization/data/"
-    train_dir = os.path.join(root_dir, 'train2017')
-    val_dir = os.path.join(root_dir, 'val2017')
+    root_dir = "../Data/Atika/Model_Optimization/data/"
+    # train_dir = os.path.join(root_dir, 'train2017')
+    # val_dir = os.path.join(root_dir, 'val2017')
 
     # Parse annotations
     train_annotations = parse_annotations(os.path.join(root_dir, 'annotations/instances_train2017.json'))
@@ -79,18 +80,21 @@ class COCO_Dataset(Dataset):
         self.imagenames = imagenames
         self.labels = labels
         self.transformations = transforms.Compose([
-            transforms.ToPILImage(),
             transforms.Resize((256, 256)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
-
-    def __getitem__(self, idx):
-        img = Image.open(os.path.join(self.traindir, self.imagenames[idx]))
-        if self.transformations != None:
+            
+    def _load_image(self, idx):
+        img_path = os.path.join(self.traindir, self.imagenames[idx])
+        img = Image.open(img_path).convert("RGB")  # Ensuring 3 channels
+        if self.transformations:
             img = self.transformations(img)
         return img, self.labels[idx]
+
+    def __getitem__(self, idx):
+        return self._load_image(idx)
 
     def __len__(self):
         return len(self.imagenames)
