@@ -51,8 +51,7 @@ class Discriminator(nn.Module):
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.conv4(x)
-        xt = x
         x = self.conv5(x)
         x = x.view(len(x), -1)
         x = self.fc(x)
-        return  xt, torch.sigmoid(x)
+        return torch.sigmoid(x)

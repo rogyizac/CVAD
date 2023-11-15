@@ -5,50 +5,62 @@ import logging
 import numpy as np
 
 import torch
+from torch import nn
 from torch.autograd import Variable
 from torch.nn import functional as F
-import torchvision.utils as vutils
-from torchvision.utils import save_image
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 
+import torchvision.utils as vutils
+from torchvision.utils import save_image
 
 from evaluate import *
 
 def load_ckpt(checkpoint_fpath, model, optimizer):
-    checkpoint = torch.load(checkpoint_fpath, map_location='cpu')
+    checkpoint = torch.load(checkpoint_fpath)
     model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    return model
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epochs_run = checkpoint['epoch']
+    return model, epochs_run
 
 def save_checkpoint(state, filename):
     """Save checkpoint if a new best is achieved"""
     print ("=> Saving a new best")
-    torch.save(state, filename)  # save checkpoint
+    torch.save(state, filename)  # save checkpoint    
     
 
-def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG, optimizerD, recon_loss, cls_loss, dataset, train_loader, val_loader, test_loader, Gepoch, Depoch, channel, device):
+def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG, optimizerD, recon_loss, cls_loss, dataset, train_loader, val_loader, test_loader, Gepoch, Gepochs_run, Depoch, Depochs_runs, channel, device):
     
     logger = logging.getLogger()
 
     best_loss = np.inf
     best_loss2 = np.inf
     
-    schedulerG = ReduceLROnPlateau(optimizerG, mode='min', factor=0.1, patience=10, verbose=True)
-    schedulerD = ReduceLROnPlateau(optimizerD, mode='min', factor=0.1, patience=5, verbose=True)
+    schedulerG = ReduceLROnPlateau(optimizerG, mode='min', factor=0.5, patience=10, verbose=True)
+    schedulerD = ReduceLROnPlateau(optimizerD, mode='min', factor=0.5, patience=5, verbose=True)
 
     ################################################################################
     # train CVAE
     ################################################################################
-    for epoch in range(Gepoch):
+    netG = netG.to(f'cuda:{device}')
+    netG = nn.SyncBatchNorm.convert_sync_batchnorm(netG)
+    print(f"DDP NetG Starts on {device}")
+    netG = DDP(netG, device_ids=[device], find_unused_parameters=True)
+    print(f"DDP NetG Ends on {device}")
+    
+    for epoch in range(Gepochs_run, Gepoch):
         loss = []
         netG.train()
+        train_loader.sampler.set_epoch(epoch)
+        current_lr = optimizerG.param_groups[0]['lr']
+        logger.info(f"Epoch {epoch}, Current LR: {current_lr}")
         for i, (images,_) in enumerate(train_loader):
             images = images.to(device)
             recon_x, mu, logvar, mu2, logvar2 = netG(images)
             optimizerG.zero_grad()
             L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
             L_dec_vae.backward()
-            optimizerG.step()      
+            optimizerG.step()
             loss.append(L_dec_vae.item())
         
             if i % 100 == 0:
@@ -61,35 +73,42 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
     
         loss = []
         netG.eval()
+        val_loader.sampler.set_epoch(epoch)
         for i, (images,_) in enumerate(val_loader):
-            images = images.cuda()
+            images = images.to(device)
             recon_x, mu, logvar, mu2, logvar2 = netG(images)
             L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
             loss.append(L_dec_vae.item())
             L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
         schedulerG.step(L_dec_vae.item())
         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss)))
-        if np.mean(loss)<best_loss:
+        if (device == 0) and (np.mean(loss)<best_loss):
             best_loss = np.mean(loss)
             torch.save({
                     'epoch': epoch,
-                    'model_state_dict': netG.state_dict(),
+                    'model_state_dict': netG.module.state_dict(),
                     'optimizer_state_dict': optimizerG.state_dict(),
                     }, "./weights/"+dataset+"/netG_"+dataset+".pth.tar")
             
+        test_loader.sampler.set_epoch(epoch)
         cvae_evaluate(netG, recon_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size)
 
     ###############################################################################
     # train Discriminator
     ################################################################################    
         
-    logger.info("--------CLS--------")    
-    cls_loss = torch.nn.BCELoss()    
-    netG.eval() 
-    for epoch in range(Depoch):
+    logger.info("--------CLS--------")
+    netD = netD.to(f'cuda:{device}')
+    netD = nn.SyncBatchNorm.convert_sync_batchnorm(netD)
+    netD = DDP(netD, device_ids=[device])
+    cls_loss = torch.nn.BCELoss()
+    netG.eval()
+    for epoch in range(Depochs_runs, Depoch):
         loss = []
         netD.train()
-    
+        train_loader.sampler.set_epoch(epoch)
+        current_lr = optimizerD.param_groups[0]['lr']
+        logger.info(f"Epoch {epoch}, Current LR: {current_lr}")
         for i, (images, targets) in enumerate(train_loader):
             images = images.to(device)
             targets = targets.to(device)
@@ -98,8 +117,8 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
             preds2 = netD(recon_x)
         
             optimizerD.zero_grad()
-            L_dec_vae = cls_loss(torch.squeeze(preds[1], dim=1),targets.float())
-            L_dec_vae += cls_loss(torch.squeeze(preds2[1], dim=1),1.0-targets)
+            L_dec_vae = cls_loss(torch.squeeze(preds, dim=1),targets.float())
+            L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)
             L_dec_vae.backward()
             optimizerD.step()      
             loss.append(L_dec_vae.item())
@@ -108,6 +127,7 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
         
         loss = []
         netD.eval()
+        val_loader.sampler.set_epoch(epoch)
         for i, (images, targets) in enumerate(val_loader):
             images = images.to(device)
             targets = targets.to(device)
@@ -115,20 +135,21 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
             preds = netD(images)
             preds2 = netD(recon_x)
 
-            L_dec_vae = cls_loss(torch.squeeze(preds[1], dim=1),targets.float())
-            L_dec_vae += cls_loss(torch.squeeze(preds2[1], dim=1),1.0-targets)      
+            L_dec_vae = cls_loss(torch.squeeze(preds, dim=1),targets.float())
+            L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)      
             loss.append(L_dec_vae.item())
 
         schedulerD.step(L_dec_vae.item())
         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss))) 
-        if np.mean(loss)<best_loss2:
+        if (device == 0) and (np.mean(loss)<best_loss2):
             best_loss2 = np.mean(loss)
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': netD.state_dict(),
+                'model_state_dict': netD.module.state_dict(),
                 'optimizer_state_dict': optimizerD.state_dict(),
                 }, "./weights/"+dataset+"/netD_"+dataset+".pth.tar")
-            
+        
+        test_loader.sampler.set_epoch(epoch)
         cvad_evaluate(netG, netD, recon_loss, cls_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size)
 
 

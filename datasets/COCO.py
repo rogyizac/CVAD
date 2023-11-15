@@ -7,6 +7,8 @@ from torchvision import datasets
 from torchvision import transforms
 from torch.utils.data.dataset import Dataset
 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 def parse_annotations(annotation_file):
     with open(annotation_file, 'r') as f:
@@ -80,17 +82,32 @@ class COCO_Dataset(Dataset):
         self.imagenames = imagenames
         self.labels = labels
         self.transformations = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
+        
+        self.albumentations_transform = A.Compose([
+                                                    A.Resize(height=256, width=256),
+                                                    A.HorizontalFlip(p=0.5),
+                                                    # A.VerticalFlip(p=0.5), 
+                                                    A.Rotate(limit=30, p=0.5),
+                                                    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+                                                    A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2, p=0.5),
+                                                ])
+        
             
     def _load_image(self, idx):
         img_path = os.path.join(self.traindir, self.imagenames[idx])
         img = Image.open(img_path).convert("RGB")  # Ensuring 3 channels
+        img = np.array(img)
+        if self.albumentations_transform:
+            img = self.albumentations_transform(image=img)["image"]
+        
+        to_tensor_transform = transforms.ToTensor()
+        img = to_tensor_transform(img)
+        
         if self.transformations:
             img = self.transformations(img)
+        
         return img, self.labels[idx]
 
     def __getitem__(self, idx):

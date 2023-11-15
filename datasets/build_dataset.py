@@ -8,6 +8,7 @@ from .COCO import get_coco_data, COCO_Dataset
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
+from torch.utils.data.distributed import DistributedSampler
 from torch import nn
 
 
@@ -54,9 +55,9 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
         print("Train :", len(train_set), "Validate :", len(validate_set), "Test :", len(test_set))
 
 
-    cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = True, num_workers = 8),
-                      'val': DataLoader(validate_set, batch_size = cvae_batch_size, num_workers = 8),
-                      'test': DataLoader(test_set, batch_size = cvae_batch_size, num_workers = 8)}
+    cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = False, sampler=DistributedSampler(train_set), num_workers = 8),
+                      'val': DataLoader(validate_set, batch_size = cvae_batch_size, sampler=DistributedSampler(validate_set), num_workers = 8),
+                      'test': DataLoader(test_set, batch_size = cvae_batch_size, sampler=DistributedSampler(test_set), num_workers = 8)}
     cvae_dataset_sizes = {'train': len(train_set), 'val': len(validate_set), 'test':len(test_set)}
         
     return cvae_dataloaders, cvae_dataset_sizes
