@@ -39,7 +39,7 @@ def get_fpr_tpr_auc(Y_label, Y_preds):
 #     fpr, tpr, aucscore = get_fpr_tpr_auc(Y_label, Y_preds) 
 #     return fpr, tpr, aucscore
 
-def cvae_evaluate(embnet, recon_loss, test_dataloader, device, variational_beta, imgSize, channel, cvae_batch_size):
+def cvae_evaluate(embnet, recon_loss, test_dataloader, device, variational_beta, imgSize, channel, cvae_batch_size, epoch):
     logger = logging.getLogger()
     logger.info("----------- CVAE evaluating------------")
     Targets = torch.Tensor().to(device) # initialize on GPU
@@ -61,11 +61,12 @@ def cvae_evaluate(embnet, recon_loss, test_dataloader, device, variational_beta,
     Y_label = Targets.detach().cpu().numpy().astype(int).tolist()
     Y_preds = ((anomaly_score - torch.min(anomaly_score)) / (torch.max(anomaly_score) - torch.min(anomaly_score))).detach().cpu().numpy().tolist()
     fpr, tpr, aucscore = get_fpr_tpr_auc(Y_label, Y_preds)
+    # cvae_writer.add_scalar('evaluation', {'fpr':fpr, 'tpr':tpr, 'auc':aucscore}, epoch)
     return fpr, tpr, aucscore
 
 
 
-def cvad_evaluate(embnet, cls_model, recon_loss, cls_loss, test_dataloader, device, variational_beta, imgSize, channel, cvae_batch_size):
+def cvad_evaluate(embnet, cls_model, recon_loss, cls_loss, test_dataloader, device, variational_beta, imgSize, channel, cvae_batch_size, epoch):
     logger = logging.getLogger()
     logger.info("----------- CVAD evaluating------------")
     Targets = []
@@ -93,6 +94,7 @@ def cvad_evaluate(embnet, cls_model, recon_loss, cls_loss, test_dataloader, devi
         Y_preds.append(0.5*((s1-np.min(np.array(anomaly_score1)))/(np.max(np.array(anomaly_score1))-np.min(np.array(anomaly_score1))) + s2))
     aucscore = None
     fpr, tpr, aucscore = get_fpr_tpr_auc(Y_label, Y_preds)
+    # cls_writer.add_scalar('evaluation', {'fpr':fpr, 'tpr':tpr, 'auc':aucscore}, epoch)
     return fpr, tpr, aucscore
 
 

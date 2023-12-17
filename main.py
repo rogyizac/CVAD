@@ -4,11 +4,13 @@ import time
 import copy
 import click
 import logging
+import datetime
 import numpy as np
 from pathlib import Path
 
 import torch
 from torch import nn
+from torch.utils.tensorboard import SummaryWriter
 from torch.distributed import init_process_group, destroy_process_group
 
 from utils.config import Config
@@ -17,6 +19,12 @@ from utils.cvad_loss import recon_loss
 from datasets.build_dataset import *
 from networks.build_net import *
 from train import train_all, load_ckpt
+
+# current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+# cvae_log_dir = f"runsCVAE/experiment_{current_time}"
+# cls_log_dir = f"runsCLS/experiment_{current_time}"
+# cvae_writer = SummaryWriter(cvae_log_dir)
+# cls_writer = SummaryWriter(cls_log_dir)
 
 # torch.autograd.set_detect_anomaly(True)
 
@@ -39,7 +47,7 @@ from train import train_all, load_ckpt
               help='Weight decay (L2 penalty) hyperparameter for autoencoder objective.')
 @click.option('--variational_beta', type=float, default=1.0, help='For CVAE loss')
 @click.option('--load_cvae_model', type=bool, default=False, help='Whether load previous trained model')
-@click.option('--cvae_model_path', type=click.Path(exists=True), default="./weights/", help='Model file path')
+@click.option('--cvae_model_path', type=click.Path(exists=True), default="../Data/risaac6/weights/", help='Model file path')
 @click.option('--cls_batch_size', type=int, default=64, help='Batch size for CVAD training.')
 @click.option('--cls_n_epochs', type=int, default=10, help='Stage-2 CVAD classification training epochs')
 @click.option('--cls_optimizer_name', type=click.Choice(['adam', 'amsgrad']), default='adam',
@@ -49,15 +57,17 @@ from train import train_all, load_ckpt
 @click.option('--cls_weight_decay', type=float, default=1e-6,
               help='Weight decay (L2 penalty) hyperparameter for tend.')
 @click.option('--load_cls_model', type=bool, default=False, help='Whether load previous trained model')
-@click.option('--cls_model_path', type=click.Path(exists=True), default="./weights/", help='Model file path')
+@click.option('--cls_model_path', type=click.Path(exists=True), default="../Data/risaac6/weights/", help='Model file path')
 @click.option('--normal_class', type=str, default="0",
               help='Specify the normal class of the dataset (all other classes are considered anomalous).')
 @click.option('--load_config', type=bool, default=False, help='Whether use previous log')
 @click.option('--config_path', type=click.Path(exists=True), default="./logs/",
               help='Config JSON-file path (default: None).')
+@click.option('--evaluation_flag', type=bool, default=False,
+              help='whether to run evaluation')
 def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, cvae_n_epochs, cvae_optimizer_name, cvae_lr, cvae_weight_decay, 
          variational_beta, load_cvae_model, cvae_model_path, cls_batch_size, cls_n_epochs, cls_optimizer_name, cls_lr, cls_weight_decay, 
-         load_cls_model, cls_model_path, normal_class, load_config, config_path):
+         load_cls_model, cls_model_path, normal_class, load_config, config_path, evaluation_flag):
     
     ddp_setup()
     device = int(os.environ["LOCAL_RANK"])
@@ -71,11 +81,13 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    log_file = "./logs/"+ dataset_name +'/log_'+cfg.settings['net_name']+"_"+cfg.settings['normal_class']+".txt"
+    log_file = "./logs/"+ dataset_name + '/' + str(normal_class) +'/log_'+cfg.settings['net_name']+"_"+cfg.settings['normal_class']+".txt"
     if not os.path.exists("./logs/"):
         os.mkdir("./logs/")
     if not os.path.exists("./logs/"+ dataset_name):
         os.mkdir("./logs/"+ dataset_name)
+    if not os.path.exists("./logs/"+ dataset_name + '/' + str(normal_class)):
+        os.mkdir("./logs/"+ dataset_name + '/' + str(normal_class))
     if os.path.exists(log_file):
         os.remove(log_file)
     file_handler = logging.FileHandler(log_file)
@@ -153,8 +165,13 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
 # ################################################################################
 # start training CVAD
 # ################################################################################     
-                                               
-    train_all(embnet, cls_model, imgSize, variational_beta, cvae_batch_size, cvae_optimizer, cls_optimizer, recon_loss, cls_loss, cfg.settings['dataset_name'], cvae_dataloaders['train'], cvae_dataloaders['val'], cvae_dataloaders['test'], cfg.settings['cvae_n_epochs'], cfg.settings['cvae_n_epochs_run'], cfg.settings['cls_n_epochs'], cfg.settings['cls_n_epochs_run'], cfg.settings['channel'], device)
+    # cvae_writer.add_hparams(cfg.settings)
+    # cvae_writer.add_graph(embnet)
+    # cls_writer.add_hparams(cfg.settings)
+    # cls_writer.add_graph(cls_model)
+    
+    # train_all(embnet, cls_model, imgSize, variational_beta, cvae_batch_size, cvae_optimizer, cls_optimizer, recon_loss, cls_loss, cfg.settings['dataset_name'], cvae_dataloaders['train'], cvae_dataloaders['val'], cvae_dataloaders['test'], cfg.settings['cvae_n_epochs'], cfg.settings['cvae_n_epochs_run'], cfg.settings['cls_n_epochs'], cfg.settings['cls_n_epochs_run'], cfg.settings['channel'], device, cfg.settings['evaluation_flag'], cvae_writer, cls_writer)
+    train_all(embnet, cls_model, imgSize, variational_beta, cvae_batch_size, cvae_optimizer, cls_optimizer, recon_loss, cls_loss, cfg.settings['dataset_name'], cvae_dataloaders['train'], cvae_dataloaders['val'], cvae_dataloaders['test'], cfg.settings['cvae_n_epochs'], cfg.settings['cvae_n_epochs_run'], cfg.settings['cls_n_epochs'], cfg.settings['cls_n_epochs_run'], cfg.settings['channel'], device, cfg.settings['evaluation_flag'], cfg.settings['normal_class'])
     
     destroy_process_group()
 
