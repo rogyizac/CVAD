@@ -2,6 +2,7 @@ import logging
 from .CVAE import *
 from .CVAE32 import *
 from .Discriminator import *
+from .EFnet import *
 
 
 def build_CVAD_net(dataset_name, net_name, capacity, channel):   
@@ -17,5 +18,10 @@ def build_CVAD_net(dataset_name, net_name, capacity, channel):
     else:
         netG = CVAE(capacity,channel)
         netD = Discriminator(capacity, channel)
-
+        
     return netG, netD
+
+def build_EF_net():
+    
+    efnet = EarlyFusionNetwork()
+    return efnet

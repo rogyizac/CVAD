@@ -16,30 +16,34 @@ import torchvision.utils as vutils
 from torchvision.utils import save_image
 
 from evaluate import *
+from utils.bert_utils import init_bert_model
+
+# os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def load_ckpt(checkpoint_fpath, model, optimizer):
     checkpoint = torch.load(checkpoint_fpath)
     model.load_state_dict(checkpoint['model_state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epochs_run = checkpoint['epoch']
     return model, epochs_run
 
 def save_checkpoint(state, filename):
     """Save checkpoint if a new best is achieved"""
     print ("=> Saving a new best")
-    torch.save(state, filename)  # save checkpoint    
+    torch.save(state, filename)  # save checkpoint
     
 
-def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG, optimizerD, recon_loss, cls_loss, dataset, train_loader, val_loader, test_loader, Gepoch, Gepochs_run, Depoch, Depochs_runs, channel, device, evaluation_flag, normal_class):
+def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, optimizerG, optimizerD, optimizerE, recon_loss, cls_loss, dataset, train_loader, val_loader, test_loader, train_img_caption_dataloader, val_img_caption_dataloader, test_img_caption_dataloader, Gepoch, Gepochs_run, Depoch, Depochs_run, Eepoch, Eepochs_run, channel, device, evaluation_flag, normal_class, effusion_model_flag):
     
     logger = logging.getLogger()
     scaler = GradScaler()
 
     best_loss = np.inf
     best_loss2 = np.inf
+    best_loss3 = np.inf
     
     schedulerG = ReduceLROnPlateau(optimizerG, mode='min', factor=0.5, patience=10, verbose=True)
     schedulerD = ReduceLROnPlateau(optimizerD, mode='min', factor=0.5, patience=5, verbose=True)
+    schedulerE = ReduceLROnPlateau(optimizerE, mode='min', factor=0.5, patience=10, verbose=True)
 
     ################################################################################
     # train CVAE
@@ -61,7 +65,7 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
         for i, (images,_) in enumerate(train_loader):
             optimizerG.zero_grad()
             images = images.to(device)
-            with autocast(dtype=torch.float16):
+            with autocast(dtype=torch.float16): # bfloat16
                 recon_x, mu, logvar, mu2, logvar2 = netG(images)
                 L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
                 
@@ -93,7 +97,7 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
                 recon_x, mu, logvar, mu2, logvar2 = netG(images)
                 L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
             loss.append(L_dec_vae.item())
-        schedulerG.step(L_dec_vae.item())
+        schedulerG.step(np.mean(loss))
         
         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss)))
         # if device == 0:
@@ -106,10 +110,10 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
                     'model_state_dict': netG.module.state_dict(),
                     'optimizer_state_dict': optimizerG.state_dict(),
                     }, "../Data/risaac6/weights/"+dataset+"/netG_"+dataset+".pth.tar")
-            
-        test_loader.sampler.set_epoch(epoch)
-        if evaluation_flag:
-            cvae_evaluate(netG, recon_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size, epoch)
+    netG.eval()      
+    # if evaluation_flag:
+    #     cvae_evaluate(netG, recon_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size)
+        
 
     ###############################################################################
     # train Discriminator
@@ -123,25 +127,26 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
     netG.eval()
     for epoch in range(Depoch):
         loss = []
-        netD.train()
         train_loader.sampler.set_epoch(epoch)
         current_lr = optimizerD.param_groups[0]['lr']
+        netD.train()
         # if device == 0:
         #     cls_writer.add_scalar('cls lr', float(current_lr), epoch)
         logger.info(f"Epoch {epoch}, Current LR: {current_lr}")
         for i, (images, targets) in enumerate(train_loader):
             images = images.to(device)
             targets = targets.to(device)
+            optimizerD.zero_grad()
             recon_x, mu, logvar, mu2, logvar2 = netG(images)
             preds = netD(images)
             preds2 = netD(recon_x)
-        
-            optimizerD.zero_grad()
+            
             L_dec_vae = cls_loss(torch.squeeze(preds, dim=1),targets.float())
             L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)
             L_dec_vae.backward()
             optimizerD.step()      
             loss.append(L_dec_vae.item())
+            
    
         logger.info("Epoch:%d Trainloss: %.8f"%(epoch, np.mean(loss)))
         # if device == 0:
@@ -160,7 +165,7 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
             L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)
             loss.append(L_dec_vae.item())
 
-        schedulerD.step(L_dec_vae.item())
+        schedulerD.step(np.mean(loss))
         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss)))
         # if device == 0:
         #     cls_writer.add_scalar('validation loss', np.mean(loss), epoch)
@@ -172,9 +177,105 @@ def train_all(netG, netD, imgSize, variational_beta, cvae_batch_size, optimizerG
                 'optimizer_state_dict': optimizerD.state_dict(),
                 }, "../Data/risaac6/weights/"+dataset+"/netD_"+dataset+".pth.tar")
         
-        test_loader.sampler.set_epoch(epoch)
+    netD.eval()
+    # if evaluation_flag:
+    #     cvad_evaluate(netG, netD, recon_loss, cls_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size, 0, normal_class)
+
+    ###############################################################################
+    # train Early Fusion Net
+    ################################################################################    
+    
+    
+    if effusion_model_flag:
+        logger.info("--------EFnet--------")
+        efnet = efnet.to(f'cuda:{device}')
+        efnet = nn.SyncBatchNorm.convert_sync_batchnorm(efnet)
+        efnet = DDP(efnet, device_ids = [device])
+        efnet_loss = nn.BCELoss()        
+
+        netG.eval()
+        for epoch in range(Eepoch):
+            loss = []
+            train_img_caption_dataloader.sampler.set_epoch(epoch)
+            current_lr = optimizerE.param_groups[0]['lr']
+            logger.info(f"Epoch {epoch}, Current LR: {current_lr}")
+            efnet.train()
+            for (i, batch) in enumerate(train_img_caption_dataloader):
+                # unpack inputs
+                batch['img'] = batch['img'].to(device)
+                batch['embeddings'] = batch['embeddings'].to(device)
+                batch['caption_label'] = batch['caption_label'].to(device)
+                images = batch['img']
+                embeddings = batch['embeddings']
+                labels = batch['caption_label']
+                # image reconstruction output
+                recon_x, mu, logvar, mu2, logvar2 = netG(images)
+                # Create inputs
+                inputs = {'image_emb':mu, 'text_emb':embeddings.squeeze(1)}
+                # early fusion network pass
+                outputs = efnet(**inputs)
+                # back prop
+                optimizerE.zero_grad()
+                loss_value = efnet_loss(outputs.squeeze(), labels.float())  # Assuming `loss` is your loss function
+                loss_value.backward()
+                optimizerE.step()
+                loss.append(loss_value.item())
+                # print(loss_value.item())
+                # print((i+1)*len(batch['img']))
+                if (i+1)*len(batch['img']) > 50000:
+                    # print('train break')
+                    break
+            # Compute mean loss or handle empty loss list
+            if loss:
+                epoch_loss = np.mean(loss)
+            else:
+                logger.info("Loss list is empty.")
+                epoch_loss = 0
+
+            logger.info("Epoch:%d Trainloss: %.8f"%(epoch, epoch_loss))
+
+            loss = []
+            efnet.eval()
+            val_img_caption_dataloader.sampler.set_epoch(epoch)
+            with torch.no_grad():
+                for (i, batch) in enumerate(val_img_caption_dataloader):
+                    # parse inputs
+                    batch['img'] = batch['img'].to(device)
+                    batch['embeddings'] = batch['embeddings'].to(device)
+                    batch['caption_label'] = batch['caption_label'].to(device)
+                    images = batch['img']
+                    embeddings = batch['embeddings']
+                    labels = batch['caption_label']
+
+                    recon_x, mu, logvar, mu2, logvar2 = netG(images)
+
+                    inputs = {'image_emb':mu, 'text_emb':embeddings.squeeze(1)}
+                    outputs = efnet(**inputs)
+
+                    loss_value = efnet_loss(outputs.squeeze(), labels.float())
+                    loss.append(loss_value.item())
+                    if (i+1)*len(batch['img']) > 20000:
+                        # print('val break')
+                        break
+                    
+            # Compute mean loss or handle empty loss list
+            if loss:
+                epoch_loss = np.mean(loss)
+            else:
+                logger.info("Loss list is empty.")
+                epoch_loss = 0
+
+            schedulerE.step(epoch_loss)
+
+            logger.info("Epoch:%d   Valloss: %.8f"%(epoch, epoch_loss))
+
+            if device == 0 and (np.mean(loss)<best_loss3):
+                best_loss3 = np.mean(loss)
+                torch.save({'epoch':epoch,
+                           'model_state_dict': efnet.module.state_dict(),
+                           'optimizer_state_dict':optimizerE.state_dict()
+                           },"../Data/risaac6/weights/"+dataset+"/netE_"+dataset+".pth.tar")
+
         if evaluation_flag:
-            cvad_evaluate(netG, netD, recon_loss, cls_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size, epoch)
-
-
-
+            efnet_evaluate(efnet, netG, test_img_caption_dataloader, device)
+        

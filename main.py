@@ -65,9 +65,22 @@ from train import train_all, load_ckpt
               help='Config JSON-file path (default: None).')
 @click.option('--evaluation_flag', type=bool, default=False,
               help='whether to run evaluation')
+@click.option('--efnet_batch_size', type=int, default=64, help='Batch size for mini-batch training.')
+@click.option('--efnet_n_epochs', type=int, default=50, help='Stage-1 autoencoder training epochs')
+@click.option('--efnet_optimizer_name', type=click.Choice(['adam', 'amsgrad']), default='adam',
+              help='Name of the optimizer to use for autoencoder network training.')
+@click.option('--efnet_lr', type=float, default=0.001,
+              help='Initial learning rate for autoencoder network training. Default=0.001')
+@click.option('--efnet_weight_decay', type=float, default=1e-5,
+              help='Weight decay (L2 penalty) hyperparameter for autoencoder objective.')
+@click.option('--load_efnet_model', type=bool, default=False, help='Whether load previous trained model')
+@click.option('--efnet_model_path', type=click.Path(exists=True), default="../Data/risaac6/weights/", help='Model file path')
+@click.option('--effusion_model_flag', type=bool, default=False,
+              help='whether to run effusion model')
 def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, cvae_n_epochs, cvae_optimizer_name, cvae_lr, cvae_weight_decay, 
          variational_beta, load_cvae_model, cvae_model_path, cls_batch_size, cls_n_epochs, cls_optimizer_name, cls_lr, cls_weight_decay, 
-         load_cls_model, cls_model_path, normal_class, load_config, config_path, evaluation_flag):
+         load_cls_model, cls_model_path, normal_class, load_config, config_path, evaluation_flag, efnet_batch_size, efnet_n_epochs, efnet_optimizer_name,
+         efnet_lr, efnet_weight_decay, load_efnet_model, efnet_model_path, effusion_model_flag):
     
     ddp_setup()
     device = int(os.environ["LOCAL_RANK"])
@@ -75,6 +88,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     cfg = Config(locals().copy())
     cfg.settings['cvae_n_epochs_run'] = 0
     cfg.settings['cls_n_epochs_run'] = 0
+    cfg.settings['efnet_n_epochs_run'] = 0
                                                
     # Set up logging
     logging.basicConfig(level=logging.INFO)
@@ -82,12 +96,8 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     log_file = "./logs/"+ dataset_name + '/' + str(normal_class) +'/log_'+cfg.settings['net_name']+"_"+cfg.settings['normal_class']+".txt"
-    if not os.path.exists("./logs/"):
-        os.mkdir("./logs/")
-    if not os.path.exists("./logs/"+ dataset_name):
-        os.mkdir("./logs/"+ dataset_name)
-    if not os.path.exists("./logs/"+ dataset_name + '/' + str(normal_class)):
-        os.mkdir("./logs/"+ dataset_name + '/' + str(normal_class))
+    path = f"./logs/{dataset_name}/{str(normal_class)}"
+    os.makedirs(path, exist_ok=True)
     if os.path.exists(log_file):
         os.remove(log_file)
     file_handler = logging.FileHandler(log_file)
@@ -97,6 +107,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     
     cvae_model_path = cfg.settings['cvae_model_path']+dataset_name+"/netG_"+dataset_name+".pth.tar"
     cls_model_path = cfg.settings['cls_model_path']+dataset_name+"/netD_"+dataset_name+".pth.tar"
+    efnet_model_path = cfg.settings['cls_model_path']+dataset_name+"/netE_"+dataset_name+".pth.tar"
     config_path = cfg.settings['config_path']+dataset_name+"/config_"+cfg.settings['net_name']+"_"+cfg.settings['normal_class']+".json"
     
     # Print arguments
@@ -125,8 +136,18 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
         logger.info('CVAD load_model: %r' %  cfg.settings['load_cls_model'])
         logger.info('CVAD model_path: %s' % cls_model_path)
         logger.info('Normal class:' + cfg.settings['normal_class'])
+        logger.info('------------Stage-3--------------')
+        logger.info('EFNET batchsize: %d' % cfg.settings['efnet_batch_size'])
+        logger.info('EFNET epochs: %d' % cfg.settings['efnet_n_epochs'])
+        logger.info('EFNET optimizer: %s' % cfg.settings['efnet_optimizer_name'])
+        logger.info('EFNET lr: %f' % cfg.settings['efnet_lr'])
+        logger.info('EFNET weight_decay: %f' % cfg.settings['efnet_weight_decay'])
+        logger.info('EFNET load_model: %r' %  cfg.settings['load_efnet_model'])
+        logger.info('EFNET model_path: %s' % efnet_model_path)
+        logger.info('Normal class:' + cfg.settings['normal_class'])
         logger.info("CVAE ==> embnet")
         logger.info("CVAD ==> cls_model")
+        logger.info("EFNET ==> efnet_model")
     
     imgSize = 256
     if dataset_name == "cifar10":
@@ -138,8 +159,12 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
 
     normal_class = re.findall(r'\d+', cfg.settings['normal_class'])
     normal_class = [int(x) for x in normal_class]
+    
     cvae_dataloaders, cvae_dataset_sizes = build_cvae_dataset(cfg.settings['dataset_name'], cfg.settings['data_path'], cfg.settings['cvae_batch_size'], normal_class)
+    efnet_dataloaders, efnet_dataset_sizes = build_efnet_dataset(cfg.settings['dataset_name'], cfg.settings['efnet_batch_size'], normal_class, device)
+    
     embnet, cls_model = build_CVAD_net(cfg.settings['dataset_name'], cfg.settings['net_name'], cfg.settings['capacity'], cfg.settings['channel'])
+    efnet = build_EF_net()
     
     amsgrad = False
     if cfg.settings['cvae_optimizer_name'] == "amsgrad":
@@ -161,6 +186,17 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
         logger.info("---------CVAD load trained discriminator model----------")
         cls_model, cls_model_epochs_run = load_ckpt(cls_model_path, cls_model, cls_optimizer)
         cfg.settings['cls_n_epochs_run'] = cls_model_epochs_run
+        
+    efnet_loss = nn.CrossEntropyLoss()
+    amsgrad = False
+    if cfg.settings['efnet_optimizer_name'] == "amsgrad":
+        amsgrad=True
+    efnet_optimizer = torch.optim.Adam(efnet.parameters(), lr=cfg.settings['efnet_lr'], weight_decay=cfg.settings['efnet_weight_decay'], amsgrad=amsgrad)
+    
+    if load_efnet_model:
+        logger.info("---------EFNETload trained model----------")
+        efnet, efnet_epochs_run = load_ckpt(efnet_model_path, efnet, efnet_optimizer)
+        cfg.settings['efnet_n_epochs_run'] = efnet_epochs_run
 
 # ################################################################################
 # start training CVAD
@@ -170,8 +206,7 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
     # cls_writer.add_hparams(cfg.settings)
     # cls_writer.add_graph(cls_model)
     
-    # train_all(embnet, cls_model, imgSize, variational_beta, cvae_batch_size, cvae_optimizer, cls_optimizer, recon_loss, cls_loss, cfg.settings['dataset_name'], cvae_dataloaders['train'], cvae_dataloaders['val'], cvae_dataloaders['test'], cfg.settings['cvae_n_epochs'], cfg.settings['cvae_n_epochs_run'], cfg.settings['cls_n_epochs'], cfg.settings['cls_n_epochs_run'], cfg.settings['channel'], device, cfg.settings['evaluation_flag'], cvae_writer, cls_writer)
-    train_all(embnet, cls_model, imgSize, variational_beta, cvae_batch_size, cvae_optimizer, cls_optimizer, recon_loss, cls_loss, cfg.settings['dataset_name'], cvae_dataloaders['train'], cvae_dataloaders['val'], cvae_dataloaders['test'], cfg.settings['cvae_n_epochs'], cfg.settings['cvae_n_epochs_run'], cfg.settings['cls_n_epochs'], cfg.settings['cls_n_epochs_run'], cfg.settings['channel'], device, cfg.settings['evaluation_flag'], cfg.settings['normal_class'])
+    train_all(embnet, cls_model, efnet, imgSize, variational_beta, cvae_batch_size, cvae_optimizer, cls_optimizer, efnet_optimizer, recon_loss, cls_loss, cfg.settings['dataset_name'], cvae_dataloaders['train'], cvae_dataloaders['val'], cvae_dataloaders['test'], efnet_dataloaders['train'], efnet_dataloaders['val'], efnet_dataloaders['test'], cfg.settings['cvae_n_epochs'], cfg.settings['cvae_n_epochs_run'], cfg.settings['cls_n_epochs'], cfg.settings['cls_n_epochs_run'], cfg.settings['efnet_n_epochs'], cfg.settings['efnet_n_epochs_run'], cfg.settings['channel'], device, cfg.settings['evaluation_flag'], cfg.settings['normal_class'], effusion_model_flag)
     
     destroy_process_group()
 
