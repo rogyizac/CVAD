@@ -32,7 +32,7 @@ from train import train_all, load_ckpt
 # Settings
 ################################################################################
 @click.command()
-@click.argument('dataset_name', type=click.Choice(['cifar10', 'siim', 'coco']))
+@click.argument('dataset_name', type=click.Choice(['cifar10', 'siim', 'coco', 'cxr']))
 @click.argument('net_name', type=click.Choice(['CVAD']))
 @click.argument('data_path', type=click.Path(exists=True))
 @click.option('--capacity', type=int, default=16, help='Specify Convoluation layer channel unit')
@@ -154,6 +154,9 @@ def main(dataset_name, net_name, data_path, capacity, channel, cvae_batch_size, 
         imgSize = 32
         channel = 3
     elif dataset_name == "coco":
+        imgSize = 256
+        channel = 3
+    elif dataset_name == "cxr":
         imgSize = 256
         channel = 3
 

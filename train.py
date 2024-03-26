@@ -208,19 +208,24 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
                 images = batch['img']
                 embeddings = batch['embeddings']
                 labels = batch['caption_label']
-                # image reconstruction output
-                recon_x, mu, logvar, mu2, logvar2 = netG(images)
-                # Create inputs
-                inputs = {'image_emb':mu, 'text_emb':embeddings.squeeze(1)}
-                # early fusion network pass
-                outputs = efnet(**inputs)
-                # back prop
                 optimizerE.zero_grad()
-                loss_value = efnet_loss(outputs.squeeze(), labels.float())  # Assuming `loss` is your loss function
+                # image reconstruction output
+                with torch.no_grad():
+                    recon_x1, mu1, logvar1, mu21, logvar21 = netG(images)
+                    recon_x2, mu2, logvar2, mu22, logvar22 = netG(recon_x1)
+                # Create inputs
+                inputs1 = {'image_emb':mu1, 'text_emb':embeddings.squeeze(1)}
+                inputs2 = {'image_emb':mu2, 'text_emb':embeddings.squeeze(1)}
+                # early fusion network pass for image
+                outputs1 = efnet(**inputs1)
+                outputs2 = efnet(**inputs2)
+                # Calculate loss
+                loss_value = efnet_loss(torch.squeeze(outputs1, dim=1), labels.float())
+                loss_value += efnet_loss(torch.squeeze(outputs2, dim=1), 1.0 - labels)
+                # back prop
                 loss_value.backward()
                 optimizerE.step()
                 loss.append(loss_value.item())
-                # print(loss_value.item())
                 # print((i+1)*len(batch['img']))
                 if (i+1)*len(batch['img']) > 50000:
                     # print('train break')
@@ -247,12 +252,18 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
                     embeddings = batch['embeddings']
                     labels = batch['caption_label']
 
-                    recon_x, mu, logvar, mu2, logvar2 = netG(images)
+                    recon_x1, mu1, logvar1, mu21, logvar21 = netG(images)
+                    recon_x2, mu2, logvar2, mu22, logvar22 = netG(recon_x1)
+                    
+                    inputs1 = {'image_emb':mu1, 'text_emb':embeddings.squeeze(1)}
+                    inputs2 = {'image_emb':mu2, 'text_emb':embeddings.squeeze(1)}
+                    
+                    outputs1 = efnet(**inputs1)
+                    outputs2 = efnet(**inputs2)
 
-                    inputs = {'image_emb':mu, 'text_emb':embeddings.squeeze(1)}
-                    outputs = efnet(**inputs)
-
-                    loss_value = efnet_loss(outputs.squeeze(), labels.float())
+                    loss_value = efnet_loss(torch.squeeze(outputs1, dim=1), labels.float())
+                    loss_value += efnet_loss(torch.squeeze(outputs2, dim=1), 1.0 - labels)
+                    
                     loss.append(loss_value.item())
                     if (i+1)*len(batch['img']) > 20000:
                         # print('val break')

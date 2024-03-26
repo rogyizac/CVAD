@@ -4,6 +4,7 @@ import numpy as np
 from .SIIM import *
 from .CIFAR10Dataset import *
 from .COCO import get_coco_data, COCO_Dataset, get_coco_image_captions_data, COCOCaptionsDataset
+from .MIMIC_CXR import get_cxr_data, CXR_Dataset
 
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -22,7 +23,7 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
     logger = logging.getLogger()
     logger.info("Build CVAE dataset for {}".format(dataset_name))
     
-    assert dataset_name in ['cifar10', 'siim', 'coco']
+    assert dataset_name in ['cifar10', 'siim', 'coco', 'cxr']
     
     if dataset_name == "cifar10":
       
@@ -47,18 +48,16 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
         train_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[0:int(0.8*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.8*(len(normal_filenames)))]))
         validate_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:], [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:]))
         test_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.8*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames))
-        
-        # train_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[0:int(0.1*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.1*(len(normal_filenames)))]))
-        # validate_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.9*(len( normal_filenames)))+1:], [0]*len(normal_fil
-        
-        # enames[int(0.9*(len( normal_filenames)))+1:]))
-        # test_set = COCO_Dataset("../Data/Atika/Model_Optimization/data/train2017/", normal_filenames[int(0.9*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.9*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames))
-        
         print("Train :", len(train_set), "Validate :", len(validate_set), "Test :", len(test_set))
         
-#     elif dataset_name == 'cxr':
+    elif dataset_name == 'cxr':
         
-#         normal_filenames, outlier_filenames = get_cxr_data(normal_class)
+        normal_filenames, outlier_filenames = get_cxr_data(normal_class)
+        train_set = CXR_Dataset(normal_filenames[0:int(0.8*(len(normal_filenames)))], [0]*len(normal_filenames[0:int(0.8*(len(normal_filenames)))]))
+        validate_set = CXR_Dataset(normal_filenames[int(0.8*(len( normal_filenames)))+1:], [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:]), img_transforms=False)
+        test_set = CXR_Dataset(normal_filenames[int(0.8*(len( normal_filenames)))+1:]+outlier_filenames, [0]*len(normal_filenames[int(0.8*(len( normal_filenames)))+1:])+[1]*len(outlier_filenames), img_transforms=False)
+        print("Train :", len(train_set), "Validate :", len(validate_set), "Test :", len(test_set))
+        
 
     cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = False, sampler=DistributedSampler(train_set), num_workers = 8),
                       'val': DataLoader(validate_set, batch_size = cvae_batch_size, sampler=DistributedSampler(validate_set), num_workers = 8),
@@ -73,26 +72,55 @@ def build_efnet_dataset(dataset_name, efnet_batch_size, normal_class, device):
     logger = logging.getLogger()
     logger.info("Build EFNET dataset for {}".format(dataset_name))
     
-    assert dataset_name in ['coco']
+    assert dataset_name in ['coco', 'cxr']
+    
+    # Initialize empty datasets and dataloaders
+    train_set = validate_set = test_set = None
+    efnet_dataloaders = {
+        'train': None,
+        'val': None,
+        'test': None
+    }
+    efnet_dataset_sizes = {
+        'train': 0,
+        'val': 0,
+        'test': 0
+    }
     
     if dataset_name == 'coco':
         
-        df = get_coco_image_captions_data(normal_class)
+        df_normal, df_outliers = get_coco_image_captions_data(normal_class)
+        df_outliers = df_outliers.sample(200000) # of 899315
+        
+        split_idx1_normal = int(len(df_normal) * 0.8)
+        
+        train_set = COCOCaptionsDataset(df_normal.iloc[:split_idx1_normal].reset_index(drop=True), device)
+        validate_set = COCOCaptionsDataset(df_normal.iloc[split_idx1_normal:].reset_index(drop=True), device, img_transforms=False)
+        # create test set
+        df_test = pd.concat([df_normal.iloc[split_idx1_normal:], df_outliers])
+        df_test = df_test.reset_index(drop=True)
+        test_set = COCOCaptionsDataset(df_test, device, img_transforms=False)
         
         # Calculate the split indices
-        split_idx1 = int(len(df) * 0.7)
-        split_idx2 = int(len(df) * 0.9)
-        split_idx3 = int(len(df) * 1)
+#         split_idx1 = int(len(df) * 0.7)
+#         split_idx2 = int(len(df) * 0.9)
+#         split_idx3 = int(len(df) * 1)
         
-        train_set = COCOCaptionsDataset(df.iloc[:split_idx1].reset_index(drop=True), device)
-        validate_set = COCOCaptionsDataset(df.iloc[split_idx1:split_idx2].reset_index(drop=True), device)
-        test_set = COCOCaptionsDataset(df.iloc[split_idx2:split_idx3].reset_index(drop=True), device, img_transforms=False)
+#         train_set = COCOCaptionsDataset(df.iloc[:split_idx1].reset_index(drop=True), device)
+#         validate_set = COCOCaptionsDataset(df.iloc[split_idx1:split_idx2].reset_index(drop=True), device)
+#         test_set = COCOCaptionsDataset(df.iloc[split_idx2:split_idx3].reset_index(drop=True), device, img_transforms=False)
         
-    efnet_dataloaders = {
-                         'train': DataLoader(train_set, batch_size = efnet_batch_size, shuffle = False, sampler=DistributedSampler(train_set), num_workers = 0),
-                         'val': DataLoader(validate_set, batch_size = efnet_batch_size, shuffle = False, sampler=DistributedSampler(validate_set), num_workers = 0),
-                         'test': DataLoader(test_set, batch_size = efnet_batch_size, shuffle = False, sampler=DistributedSampler(test_set), num_workers = 0)
-                        }
-    efnet_dataset_sizes = {'train': len(train_set), 'val': len(validate_set), 'test': len(test_set)}
+    # Check if the datasets are populated
+    if train_set is not None and validate_set is not None and test_set is not None:
+        efnet_dataloaders = {
+            'train': DataLoader(train_set, batch_size=efnet_batch_size, shuffle=False, sampler=DistributedSampler(train_set), num_workers=0),
+            'val': DataLoader(validate_set, batch_size=efnet_batch_size, shuffle=False, sampler=DistributedSampler(validate_set), num_workers=0),
+            'test': DataLoader(test_set, batch_size=efnet_batch_size, shuffle=False, sampler=DistributedSampler(test_set), num_workers=0)
+        }
+        efnet_dataset_sizes = {
+            'train': len(train_set),
+            'val': len(validate_set),
+            'test': len(test_set)
+        }
     
     return efnet_dataloaders, efnet_dataset_sizes

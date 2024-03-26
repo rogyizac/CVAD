@@ -142,18 +142,20 @@ def get_coco_image_captions_data(normal_class):
 
         ### target images, related captions | other images, related captions
         df = pd.concat([df_train, df_val])
-        df['caption_label'] = 0
-        df['image_label'] = df['labels'].apply(lambda labels: 0 if normal_class in labels else 1)
+        df['image_label'] = df['labels'].apply(lambda labels: 0 if any(label in normal_class for label in labels) else 1)
+        df['caption_label'] = df['image_label']
 
         ### target images, unrelated captions
-        # Filter for images label 1 present
+        # Filter for images label present
         df_label_present = df[df['image_label'] == 0].reset_index(drop=True)
+        ### other images, unrelated captions
+        df_label_absent = df[df['image_label'] == 1].reset_index(drop=True)
 
         # Precompute all captions and create a mapping to exclude the original caption more efficiently
-        all_captions = df['caption'].tolist()
+        all_captions = df_label_absent['caption'].tolist()
 
         # Generate a random index list for captions, ensuring not to match with its own index
-        random_indices = np.random.randint(0, len(df), size=len(df_label_present))
+        random_indices = np.random.randint(0, len(df_label_absent), size=len(df_label_present))
 
         # Initialize lists for the new DataFrame
         new_image_ids = df_label_present['image_id'].tolist()
@@ -163,8 +165,7 @@ def get_coco_image_captions_data(normal_class):
         new_folder = df_label_present['folder'].tolist()
 
         # Efficiently select random captions, excluding the original by checking and re-selecting if necessary
-        new_captions = [all_captions[idx] if idx != row_index else all_captions[(idx + 1) % len(all_captions)]
-                        for row_index, idx in enumerate(random_indices)]
+        new_captions = [all_captions[idx] for row_index, idx in enumerate(random_indices)]
 
         # Create the new DataFrame
         new_df_with_mismatched_captions_label_present = pd.DataFrame({
@@ -177,43 +178,45 @@ def get_coco_image_captions_data(normal_class):
             'folder': new_folder
         })
 
-        ### other images, unrelated captions
-        df_label_absent = df[df['image_label'] == 1].reset_index(drop=True)
+
 
         # Precompute all captions and create a mapping to exclude the original caption more efficiently
-        all_captions = df['caption'].tolist()
+        # all_captions = df['caption'].tolist()
 
         # Generate a random index list for captions, ensuring not to match with its own index
-        random_indices = np.random.randint(0, len(df), size=len(df_label_absent))
+        # random_indices = np.random.randint(0, len(df), size=len(df_label_absent))
 
         # Initialize lists for the new DataFrame
-        new_image_ids = df_label_absent['image_id'].tolist()
-        new_image_paths = df_label_absent['image_path'].tolist()
-        new_image_labels = df_label_absent['image_label'].tolist()
-        new_labels = df_label_absent['labels'].tolist()
-        new_folder = df_label_absent['folder'].tolist()
+        # new_image_ids = df_label_absent['image_id'].tolist()
+        # new_image_paths = df_label_absent['image_path'].tolist()
+        # new_image_labels = df_label_absent['image_label'].tolist()
+        # new_labels = df_label_absent['labels'].tolist()
+        # new_folder = df_label_absent['folder'].tolist()
 
         # Efficiently select random captions, excluding the original by checking and re-selecting if necessary
-        new_captions = [all_captions[idx] if idx != row_index else all_captions[(idx + 1) % len(all_captions)]
-                        for row_index, idx in enumerate(random_indices)]
+        # new_captions = [all_captions[idx] if idx != row_index else all_captions[(idx + 1) % len(all_captions)]
+        #                 for row_index, idx in enumerate(random_indices)]
 
         # Create the new DataFrame
-        new_df_with_mismatched_captions_label_absent = pd.DataFrame({
-            'image_id': new_image_ids,
-            'image_path': new_image_paths,
-            'caption': new_captions,
-            'labels': new_labels,
-            'image_label': new_image_labels,
-            'caption_label': [1] * len(new_image_ids),
-            'folder': new_folder
-        })
+        # new_df_with_mismatched_captions_label_absent = pd.DataFrame({
+        #     'image_id': new_image_ids,
+        #     'image_path': new_image_paths,
+        #     'caption': new_captions,
+        #     'labels': new_labels,
+        #     'image_label': new_image_labels,
+        #     'caption_label': [1] * len(new_image_ids),
+        #     'folder': new_folder
+        # })
 
-        df = pd.concat([df, new_df_with_mismatched_captions_label_absent, new_df_with_mismatched_captions_label_present])
+        df = pd.concat([df, new_df_with_mismatched_captions_label_present])
         df = df.reset_index(drop = True)
         df = df.sample(frac = 1)
         df.to_csv(r"coco_image_captions.csv", index = False)
         
-    return df
+    df_normal = df.loc[(df["image_label"] == 0) & (df["caption_label"] == 0)]
+    df_outliers = df.loc[~((df["image_label"] == 0) & (df["caption_label"] == 0))]
+    # print(df_normal.shape, df_outliers.shape)
+    return df_normal, df_outliers
     
 def create_coco_dataframe(image_annotations, caption_annotations):
     # Parse the annotations
