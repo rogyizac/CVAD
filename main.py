@@ -26,7 +26,7 @@ from train import train_all, load_ckpt
 # cvae_writer = SummaryWriter(cvae_log_dir)
 # cls_writer = SummaryWriter(cls_log_dir)
 
-# torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(True)
 
 ################################################################################
 # Settings

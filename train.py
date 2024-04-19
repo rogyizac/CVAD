@@ -51,8 +51,14 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
     netG = netG.to(f'cuda:{device}')
     netG = nn.SyncBatchNorm.convert_sync_batchnorm(netG)
     print(f"DDP NetG Starts on {device}")
-    netG = DDP(netG, device_ids=[device], find_unused_parameters=True)
+    netG = DDP(netG, device_ids=[device])
     print(f"DDP NetG Ends on {device}")
+    
+    # Phase 1: Optimize x_recon (freeze x_2 related parts)
+    # Freeze layers for x_2
+    # for layer in [netG.module.fc2, netG.module.fc_logvar2, netG.module.fc_mu2, netG.module.dconv32, netG.module.dconv22, netG.module.dconv12]:
+    #     for param in layer.parameters():
+    #         param.requires_grad = False          
     
     for epoch in range(Gepoch):
         loss = []
@@ -61,15 +67,19 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
         current_lr = optimizerG.param_groups[0]['lr']
         # if device == 0:
         #     cvae_writer.add_scalar('cvae lr', float(current_lr), epoch)
-        logger.info(f"Epoch {epoch}, Current LR: {current_lr}")
+        logger.info(f"Epoch {epoch}, Current LR: {current_lr}")  
+        
         for i, (images,_) in enumerate(train_loader):
             optimizerG.zero_grad()
             images = images.to(device)
-            with autocast(dtype=torch.float16): # bfloat16
+            with autocast(dtype=torch.float32): # bfloat16
                 recon_x, mu, logvar, mu2, logvar2 = netG(images)
                 L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
                 
             scaler.scale(L_dec_vae).backward()
+            # Gradient clipping
+            scaler.unscale_(optimizerG)  # Unscales the gradients of optimizer's assigned params in-place
+            torch.nn.utils.clip_grad_norm_(netG.parameters(), max_norm=1.0)  # max_norm is the max norm of the gradients            
             scaler.step(optimizerG)
             scaler.update()
             loss.append(L_dec_vae.item())
@@ -93,7 +103,7 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
         val_loader.sampler.set_epoch(epoch)
         for i, (images,_) in enumerate(val_loader):
             images = images.to(device)
-            with autocast(dtype=torch.float16):
+            with autocast(dtype=torch.float32):
                 recon_x, mu, logvar, mu2, logvar2 = netG(images)
                 L_dec_vae = recon_loss(recon_x, images, mu, logvar, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
             loss.append(L_dec_vae.item())
@@ -110,7 +120,84 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
                     'model_state_dict': netG.module.state_dict(),
                     'optimizer_state_dict': optimizerG.state_dict(),
                     }, "../Data/risaac6/weights/"+dataset+"/netG_"+dataset+".pth.tar")
-    netG.eval()      
+    
+    # Phase 2: Optimize x_2 (freeze x_2 related parts)
+    # Freeze layers for x_recon
+    
+#     for layer in [netG.module.fc2, netG.module.fc_logvar2, netG.module.fc_mu2, netG.module.dconv32, netG.module.dconv22, netG.module.dconv12]:
+#         for param in layer.parameters():
+#             param.requires_grad = True      
+#     for layer in [netG.module.conv1, netG.module.conv2, netG.module.conv3, netG.module.conv4, netG.module.conv5,
+#                  netG.module.fc_mu, netG.module.fc_logvar, netG.module.fc,
+#                  netG.module.dconv1, netG.module.dconv2, netG.module.dconv3, netG.module.dconv4, netG.module.dconv5,]:
+#         for param in layer.parameters():
+#             param.requires_grad = False
+    
+#     for epoch in range(Gepoch):
+#         loss = []
+#         netG.train()
+#         train_loader.sampler.set_epoch(epoch)
+#         current_lr = optimizerG.param_groups[0]['lr']
+#         # if device == 0:
+#         #     cvae_writer.add_scalar('cvae lr', float(current_lr), epoch)
+#         logger.info(f"Epoch {epoch}, Current LR: {current_lr}")  
+        
+#         for i, (images,_) in enumerate(train_loader):
+#             optimizerG.zero_grad()
+#             images = images.to(device)
+#             with autocast(dtype=torch.float32): # bfloat16
+#                 recon_x, recon_x_2, mu, logvar, mu2, logvar2 = netG(images)
+#                 L_dec_vae = recon_loss(recon_x_2, images, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
+                
+#             scaler.scale(L_dec_vae).backward()
+#             scaler.step(optimizerG)
+#             scaler.update()
+#             loss.append(L_dec_vae.item())
+        
+#         if device == 0:
+#             vutils.save_image(images,
+#                             './logs/'+dataset + '/' + str(normal_class) + '/real_samples_'+dataset+'.png',normalize=True)
+#             vutils.save_image(recon_x.data.view(-1,channel,imgSize,imgSize),
+#                             './logs/'+dataset+ '/' + str(normal_class) + '/fake_samples_'+dataset+'.png',normalize=True)
+#             img_grid = vutils.make_grid(images)
+#             # cvae_writer.add_image('original images', img_grid)
+#             img_grid = vutils.make_grid(recon_x.data.view(-1,channel,imgSize,imgSize))
+#             # cvae_writer.add_image('reconstructed images', img_grid)
+
+#         logger.info("Epoch:%d Trainloss: %.8f"%(epoch, np.mean(loss)))
+#         # if device == 0:
+#             # cvae_writer.add_scalar('training loss', np.mean(loss), epoch)
+    
+#         loss = []
+#         netG.eval()
+#         val_loader.sampler.set_epoch(epoch)
+#         for i, (images,_) in enumerate(val_loader):
+#             images = images.to(device)
+#             with autocast(dtype=torch.float32):
+#                 recon_x, recon_x_2, mu, logvar, mu2, logvar2 = netG(images)
+#                 L_dec_vae = recon_loss(recon_x_2, images, mu2, logvar2, variational_beta, imgSize, channel, cvae_batch_size)
+#             loss.append(L_dec_vae.item())
+#         schedulerG.step(np.mean(loss))
+        
+#         logger.info("Epoch:%d   Valloss: %.8f"%(epoch, np.mean(loss)))
+#         # if device == 0:
+#         #     cvae_writer.add_scalar('validation loss', np.mean(loss), epoch)
+        
+#         if (device == 0) and (np.mean(loss)<best_loss):
+#             best_loss = np.mean(loss)
+#             torch.save({
+#                     'epoch': epoch,
+#                     'model_state_dict': netG.module.state_dict(),
+#                     'optimizer_state_dict': optimizerG.state_dict(),
+#                     }, "../Data/risaac6/weights/"+dataset+"/netG_"+dataset+".pth.tar")
+#     netG.eval()      
+
+#     for layer in [netG.module.conv1, netG.module.conv2, netG.module.conv3, netG.module.conv4, netG.module.conv5,
+#                  netG.module.fc_mu, netG.module.fc_logvar, netG.module.fc,
+#                  netG.module.dconv1, netG.module.dconv2, netG.module.dconv3, netG.module.dconv4, netG.module.dconv5,]:
+#         for param in layer.parameters():
+#             param.requires_grad = True
+            
     # if evaluation_flag:
     #     cvae_evaluate(netG, recon_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size)
         
@@ -136,18 +223,22 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
         for i, (images, targets) in enumerate(train_loader):
             images = images.to(device)
             targets = targets.to(device)
+            with torch.no_grad():
+                recon_x, mu, logvar, mu2, logvar2 = netG(images)
             optimizerD.zero_grad()
-            recon_x, mu, logvar, mu2, logvar2 = netG(images)
             preds = netD(images)
-            preds2 = netD(recon_x)
-            
             L_dec_vae = cls_loss(torch.squeeze(preds, dim=1),targets.float())
-            L_dec_vae += cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)
-            L_dec_vae.backward()
-            optimizerD.step()      
+            L_dec_vae.backward(retain_graph=True)
+            optimizerD.step()
             loss.append(L_dec_vae.item())
             
-   
+            optimizerD.zero_grad()
+            preds2 = netD(recon_x)
+            L_dec_vae = cls_loss(torch.squeeze(preds2, dim=1),1.0-targets)
+            L_dec_vae.backward()
+            optimizerD.step()
+            loss.append(L_dec_vae.item())
+
         logger.info("Epoch:%d Trainloss: %.8f"%(epoch, np.mean(loss)))
         # if device == 0:
         #     cls_writer.add_scalar('training loss', np.mean(loss), epoch)
@@ -178,8 +269,8 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
                 }, "../Data/risaac6/weights/"+dataset+"/netD_"+dataset+".pth.tar")
         
     netD.eval()
-    # if evaluation_flag:
-    #     cvad_evaluate(netG, netD, recon_loss, cls_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size, 0, normal_class)
+    if evaluation_flag:
+        cvad_evaluate(netG, netD, recon_loss, cls_loss, test_loader, device, variational_beta, imgSize, channel, cvae_batch_size, 0, normal_class)
 
     ###############################################################################
     # train Early Fusion Net
@@ -287,6 +378,6 @@ def train_all(netG, netD, efnet, imgSize, variational_beta, cvae_batch_size, opt
                            'optimizer_state_dict':optimizerE.state_dict()
                            },"../Data/risaac6/weights/"+dataset+"/netE_"+dataset+".pth.tar")
 
-        if evaluation_flag:
-            efnet_evaluate(efnet, netG, test_img_caption_dataloader, device)
+        # if evaluation_flag:
+        #     efnet_evaluate(efnet, netG, test_img_caption_dataloader, device)
         

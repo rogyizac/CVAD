@@ -15,6 +15,133 @@ latent_dims = 512
 ############################################################
 
 
+# class CVAE(nn.Module):
+#     def __init__(self,  capacity=16, channel=3):
+#         super(CVAE, self).__init__() # 3 x 256 x 256
+#         self.c = capacity
+#         self.conv1 = nn.Sequential(
+#             nn.Conv2d(in_channels=channel, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c),
+#             nn.LeakyReLU(0.2, inplace=True), # 16 x 128 x 128
+#         )
+#         self.conv2 = nn.Sequential(
+#             nn.Conv2d(in_channels=self.c, out_channels=self.c*2, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*2),
+#             nn.LeakyReLU(0.2, inplace=True), # 32 x 64 x 64
+#         )
+#         self.conv3 = nn.Sequential(
+#             nn.Conv2d(in_channels=self.c*2, out_channels=self.c*4, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*4),
+#             nn.LeakyReLU(0.2, inplace=True), # 64 x 32 x 32
+#         )
+#         self.conv4 = nn.Sequential(
+#             nn.Conv2d(in_channels=self.c*4, out_channels=self.c*8, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*8),
+#             nn.LeakyReLU(0.2, inplace=True), # 128 x 16 x 16
+#         )
+#         self.conv5 = nn.Sequential(
+#             nn.Conv2d(in_channels=self.c*8, out_channels=self.c*16, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*16),
+#             nn.LeakyReLU(0.2, inplace=True), # 256 x 8 x 8
+#         )
+        
+#         self.fc_mu = nn.Linear(in_features=self.c*16*(imgSize//32)*(imgSize//32), out_features=latent_dims)
+#         self.fc_logvar = nn.Linear(in_features=self.c*16*(imgSize//32)*(imgSize//32), out_features=latent_dims)
+        
+#         self.fc_mu2 = nn.Linear(in_features=self.c*8*(imgSize//8)*(imgSize//8), out_features=latent_dims*4)
+#         self.fc_logvar2 = nn.Linear(in_features=self.c*8*(imgSize//8)*(imgSize//8), out_features=latent_dims*4)
+        
+#         self.fc = nn.Linear(in_features=latent_dims, out_features=self.c*16*(imgSize//32)*(imgSize//32))
+#         self.fc2 = nn.Linear(in_features=latent_dims*4, out_features=self.c*4*(imgSize//8)*(imgSize//8))
+        
+#         self.dconv5 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c*16, out_channels=self.c*8, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*8),
+#             nn.LeakyReLU(0.2, inplace=True),
+#         )
+#         self.dconv4 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c*8, out_channels=self.c*4, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*4),
+#             nn.LeakyReLU(0.2, inplace=True),
+#         )
+#         self.dconv3 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c*8, out_channels=self.c*2, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*2),
+#             nn.LeakyReLU(0.2, inplace=True),
+#         )
+#         self.dconv2 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c*4, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c),
+#             nn.LeakyReLU(0.2, inplace=True),
+#         )
+#         self.dconv1 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c, out_channels=channel, kernel_size=4, stride=2, padding=1)
+#         )
+        
+#         self.dconv32 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c*4, out_channels=self.c*2, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c*2),
+#             nn.LeakyReLU(0.2, inplace=True),
+#         )
+#         self.dconv22 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c*2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+#             nn.BatchNorm2d(self.c),
+#             nn.LeakyReLU(0.2, inplace=True),
+#         )
+#         self.dconv12 = nn.Sequential(
+#             nn.ConvTranspose2d(in_channels=self.c, out_channels=channel, kernel_size=4, stride=2, padding=1)
+#         )
+    
+#     def latent_sample(self, mu, logvar):
+#         if self.training:
+#             std = logvar.mul(0.5).exp_()
+#             eps = torch.empty_like(std).normal_()
+#             return eps.mul(std).add_(mu)
+#         else:
+#             return mu  
+    
+#     def forward(self, x):
+#         x = self.conv1(x)
+#         x2 = self.conv2(x)
+#         x3 = self.conv3(x2)
+#         x_enc = x3
+#         x = self.conv4(x3)
+#         x = self.conv5(x)
+#         x = x.view(x.size(0), -1) # flatten batch of multi-channel feature maps to a batch of feature vectors
+#         x_mu = self.fc_mu(x)
+#         x_logvar = self.fc_logvar(x)
+        
+#         latent = self.latent_sample(x_mu, x_logvar)
+#         x = self.fc(latent)
+#         x = x.view(-1, self.c*16, imgSize//32, imgSize//32)
+#         x = self.dconv5(x)
+#         x = self.dconv4(x)
+#         x_enc2 = torch.cat([x, x_enc], dim = 1)
+#         x = torch.cat([x, x3], dim=1)
+#         x = self.dconv3(x)
+#         x = torch.cat([x, x2], dim=1)
+#         x = self.dconv2(x)
+#         x = self.dconv1(x)
+#         x = torch.sigmoid(x)
+                
+#         x_enc2 = x_enc2.view(x_enc2.size(0), -1)
+#         x_mu2 = self.fc_mu2(x_enc2)
+#         x_logvar2 = self.fc_logvar2(x_enc2)
+        
+#         latent2 = self.latent_sample(x_mu2, x_logvar2)
+#         x_2 = self.fc2(latent2)
+#         x_2 = x_2.view(-1, self.c*4, imgSize//8, imgSize//8)
+#         x_2 = self.dconv32(x_2)
+#         x_2 = self.dconv22(x_2)
+#         x_2 = self.dconv12(x_2)
+#         x_2 = torch.sigmoid(x_2)
+        
+#         x_final = 0.5*(x+x_2)
+        
+#         return x_final, x_mu, x_logvar, x_mu2, x_logvar2
+
+
+
 class CVAE(nn.Module):
     def __init__(self,  capacity=16, channel=3):
         super(CVAE, self).__init__() # 3 x 256 x 256
@@ -55,27 +182,27 @@ class CVAE(nn.Module):
         self.fc2 = nn.Linear(in_features=latent_dims*4, out_features=self.c*4*(imgSize//8)*(imgSize//8))
         
         self.dconv5 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=self.c*16, out_channels=self.c*8, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(in_channels=self.c*16*2, out_channels=self.c*8, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c*8),
             nn.LeakyReLU(0.2, inplace=True),
         )
         self.dconv4 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=self.c*8, out_channels=self.c*4, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(in_channels=self.c*8*2, out_channels=self.c*4, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c*4),
             nn.LeakyReLU(0.2, inplace=True),
         )
         self.dconv3 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=self.c*4, out_channels=self.c*2, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(in_channels=self.c*4*2, out_channels=self.c*2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c*2),
             nn.LeakyReLU(0.2, inplace=True),
         )
         self.dconv2 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=self.c*2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(in_channels=self.c*2*2, out_channels=self.c, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(self.c),
             nn.LeakyReLU(0.2, inplace=True),
         )
         self.dconv1 = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=self.c, out_channels=channel, kernel_size=4, stride=2, padding=1)
+            nn.ConvTranspose2d(in_channels=self.c*1*2, out_channels=channel, kernel_size=4, stride=2, padding=1)
         )
         
         self.dconv32 = nn.Sequential(
@@ -101,24 +228,29 @@ class CVAE(nn.Module):
             return mu  
     
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x_enc = x
-        x = self.conv4(x)
-        x = self.conv5(x)
-        x = x.view(x.size(0), -1) # flatten batch of multi-channel feature maps to a batch of feature vectors
+        x1 = self.conv1(x)
+        x2 = self.conv2(x1)
+        x3 = self.conv3(x2)
+        x_enc = x3
+        x4 = self.conv4(x3)
+        x5 = self.conv5(x4)
+        x = x5.view(x5.size(0), -1) # flatten batch of multi-channel feature maps to a batch of feature vectors
         x_mu = self.fc_mu(x)
         x_logvar = self.fc_logvar(x)
         
         latent = self.latent_sample(x_mu, x_logvar)
         x = self.fc(latent)
         x = x.view(-1, self.c*16, imgSize//32, imgSize//32)
+        x = torch.cat([x, x5], dim=1)
         x = self.dconv5(x)
+        x = torch.cat([x, x4], dim=1)
         x = self.dconv4(x)
         x_enc2 = torch.cat([x, x_enc], dim = 1)
+        x = torch.cat([x, x3], dim=1)
         x = self.dconv3(x)
+        x = torch.cat([x, x2], dim=1)
         x = self.dconv2(x)
+        x = torch.cat([x, x1], dim=1)
         x = self.dconv1(x)
         x = torch.sigmoid(x)
                 
@@ -131,8 +263,6 @@ class CVAE(nn.Module):
         x_2 = x_2.view(-1, self.c*4, imgSize//8, imgSize//8)
         x_2 = self.dconv32(x_2)
         x_2 = self.dconv22(x_2)
-        x_l = x_2
-        x_l = x_l.view(1,-1)
         x_2 = self.dconv12(x_2)
         x_2 = torch.sigmoid(x_2)
         

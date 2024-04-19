@@ -4,7 +4,7 @@ import numpy as np
 from .SIIM import *
 from .CIFAR10Dataset import *
 from .COCO import get_coco_data, COCO_Dataset, get_coco_image_captions_data, COCOCaptionsDataset
-from .MIMIC_CXR import get_cxr_data, CXR_Dataset
+from .MIMIC_CXR import get_cxr_data, CXR_Dataset, get_cxr_image_captions_data
 
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -62,7 +62,7 @@ def build_cvae_dataset(dataset_name, data_path, cvae_batch_size, normal_class):
     cvae_dataloaders = {'train': DataLoader(train_set, batch_size = cvae_batch_size, shuffle = False, sampler=DistributedSampler(train_set), num_workers = 8),
                       'val': DataLoader(validate_set, batch_size = cvae_batch_size, sampler=DistributedSampler(validate_set), num_workers = 8),
                       'test': DataLoader(test_set, batch_size = cvae_batch_size, sampler=DistributedSampler(test_set), num_workers = 8)}
-    cvae_dataset_sizes = {'train': len(train_set), 'val': len(validate_set), 'test':len(test_set)}        
+    cvae_dataset_sizes = {'train': len(train_set), 'val': len(validate_set), 'test':len(test_set)}
         
         
     return cvae_dataloaders, cvae_dataset_sizes
@@ -109,6 +109,11 @@ def build_efnet_dataset(dataset_name, efnet_batch_size, normal_class, device):
 #         train_set = COCOCaptionsDataset(df.iloc[:split_idx1].reset_index(drop=True), device)
 #         validate_set = COCOCaptionsDataset(df.iloc[split_idx1:split_idx2].reset_index(drop=True), device)
 #         test_set = COCOCaptionsDataset(df.iloc[split_idx2:split_idx3].reset_index(drop=True), device, img_transforms=False)
+
+    # if dataset_name == 'cxr':
+        
+        # df_normal, df_outliers = get_cxr_image_captions_data(normal_class)
+        
         
     # Check if the datasets are populated
     if train_set is not None and validate_set is not None and test_set is not None:
